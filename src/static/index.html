@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>LLM Arena</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         max-width: 1000px; margin: 2em auto; padding: 0 1em;
+         color: #1a1a1a; background: #fafafa; }
+  h1 { font-size: 1.5em; margin-bottom: 1em; }
+  h2 { font-size: 1.1em; margin-top: 2em; color: #333; }
+  textarea { width: 100%; padding: 0.8em; font-family: inherit; font-size: 1em;
+             border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;
+             min-height: 80px; }
+  button { padding: 0.5em 1em; font-size: 0.95em; border: 1px solid #ddd;
+           background: #fff; border-radius: 4px; cursor: pointer; margin-right: 0.5em; }
+  button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .responses { display: flex; gap: 1em; margin: 1em 0; }
+  .response { flex: 1; padding: 1em; border: 1px solid #ddd; border-radius: 4px;
+              background: #fff; min-height: 80px; white-space: pre-wrap; }
+  .response h3 { margin-top: 0; font-size: 0.95em; color: #666; }
+  .vote-area { margin: 1em 0; }
+  .meta { color: #666; font-size: 0.85em; margin-top: 1em; }
+  .leaderboard { width: 100%; border-collapse: collapse; background: #fff; margin-top: 1em; }
+  .leaderboard th, .leaderboard td { padding: 0.6em; text-align: left;
+                                     border-bottom: 1px solid #eee; font-size: 0.9em; }
+  .leaderboard th { background: #f5f5f5; font-weight: 600; }
+  .badge { display: inline-block; padding: 0.15em 0.5em; border-radius: 3px; font-size: 0.75em; }
+  .badge.warn { background: #fff3cd; color: #856404; }
+  .badge.ok { background: #d4edda; color: #155724; }
+  .badge.group { background: #e2e3e5; color: #333; }
+  .null { color: #999; }
+  #error { color: #d93025; margin-left: 0.5em; }
+</style>
+</head>
+<body>
+<h1>LLM Arena 竞技场</h1>
+
+<h2>发起对战</h2>
+<textarea id="prompt" placeholder="输入一个 prompt..."></textarea>
+<div style="margin-top: 0.5em;">
+  <button class="primary" id="btn-battle" onclick="startBattle()">开始对战</button>
+  <span id="error"></span>
+</div>
+
+<div id="battle-area" style="display:none;">
+  <div class="responses">
+    <div class="response"><h3>A</h3><div id="resp-a"></div></div>
+    <div class="response"><h3>B</h3><div id="resp-b"></div></div>
+  </div>
+  <div class="vote-area">
+    <button onclick="vote('A')">A 更好</button>
+    <button onclick="vote('B')">B 更好</button>
+    <button onclick="vote('tie')">平局</button>
+    <button onclick="vote('both_bad')">都不好</button>
+  </div>
+</div>
+
+<div id="vote-result" class="meta"></div>
+
+<h2>排行榜</h2>
+<button onclick="loadLeaderboard()">刷新</button>
+<table class="leaderboard">
+  <thead>
+    <tr><th>组</th><th>模型</th><th>评分</th><th>95% CI</th><th>排名区间</th><th>对战数</th><th>状态</th></tr>
+  </thead>
+  <tbody id="lb-body">
+    <tr><td colspan="7" style="text-align:center;color:#999;">点击“刷新”加载</td></tr>
+  </tbody>
+</table>
+
+<script>
+let currentBattleId = null;
+
+function genSessionId() {
+  return 'ui-' + Math.random().toString(36).slice(2, 12);
+}
+
+async function startBattle() {
+  const prompt = document.getElementById('prompt').value.trim();
+  const errEl = document.getElementById('error');
+  errEl.textContent = '';
+  if (!prompt) { errEl.textContent = '请输入 prompt'; return; }
+
+  document.getElementById('btn-battle').disabled = true;
+  document.getElementById('battle-area').style.display = 'none';
+  document.getElementById('vote-result').textContent = '';
+
+  try {
+    const resp = await fetch('/api/v1/battles', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt, session_id: genSessionId()})
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      errEl.textContent = '对战失败: ' + JSON.stringify(data.detail || data);
+      return;
+    }
+    if (data.rejected) {
+      errEl.textContent = '请求被拒绝: ' + data.reason;
+      return;
+    }
+    currentBattleId = data.battle_id;
+    document.getElementById('resp-a').textContent = data.responses.A || '(空)';
+    document.getElementById('resp-b').textContent = data.responses.B || '(空)';
+    document.getElementById('battle-area').style.display = 'block';
+  } catch (e) {
+    errEl.textContent = '网络错误: ' + e.message;
+  } finally {
+    document.getElementById('btn-battle').disabled = false;
+  }
+}
+
+async function vote(winner) {
+  if (!currentBattleId) return;
+  const resultEl = document.getElementById('vote-result');
+  try {
+    const resp = await fetch(`/api/v1/battles/${currentBattleId}/vote`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({winner, vote_duration_ms: 1200})
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      resultEl.textContent = '投票失败: ' + JSON.stringify(data.detail || data);
+      return;
+    }
+    resultEl.textContent = `✓ 投票已记录 (quality: ${data.quality_flag})`;
+    currentBattleId = null;
+    document.getElementById('battle-area').style.display = 'none';
+  } catch (e) {
+    resultEl.textContent = '网络错误: ' + e.message;
+  }
+}
+
+async function loadLeaderboard() {
+  const tbody = document.getElementById('lb-body');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">加载中...</td></tr>';
+  try {
+    const resp = await fetch('/api/v1/leaderboard');
+    const rows = await resp.json();
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">暂无数据，先跑一次对战和评分</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => {
+      const ci = r.ci_reliable
+        ? `[${r.ci_lower.toFixed(1)}, ${r.ci_upper.toFixed(1)}]`
+        : '<span class="null">样本不足</span>';
+      const rank = `[${r.rank_ci[0]}, ${r.rank_ci[1]}]`;
+      const status = r.provisional
+        ? '<span class="badge warn">Preliminary</span>'
+        : '<span class="badge ok">Established</span>';
+      const group = `<span class="badge group">#${r.tied_group ?? '?'}</span>`;
+      return `<tr>
+        <td>${group}</td>
+        <td>${r.model}</td>
+        <td>${r.rating.toFixed(1)}</td>
+        <td>${ci}</td>
+        <td>${rank}</td>
+        <td>${r.n_battles}</td>
+        <td>${status}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:#d93025;">加载失败: ${e.message}</td></tr>`;
+  }
+}
+
+loadLeaderboard();
+</script>
+</body>
+</html>

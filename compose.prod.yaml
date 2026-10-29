@@ -1,0 +1,32 @@
+services:
+  api:
+    restart: always
+    deploy:
+      resources:
+        limits: { memory: 1g, cpus: "1.0" }
+  worker:
+    restart: always
+    deploy:
+      replicas: 2
+      resources:
+        limits: { memory: 2g, cpus: "2.0" }
+  beat:
+    restart: always
+    deploy:
+      replicas: 1
+      resources:
+        limits: { memory: 256m, cpus: "0.5" }
+  rating-job:
+    deploy:
+      resources:
+        limits: { memory: 4g, cpus: "4.0" }
+  postgres:
+    restart: always
+    deploy:
+      resources:
+        limits: { memory: 2g }
+  redis:
+    restart: always
+    deploy:
+      resources:
+        limits: { memory: 512m }

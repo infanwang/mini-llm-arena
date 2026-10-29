@@ -1,0 +1,27 @@
+# 密钥与本地配置
+.env
+.env.local
+secrets/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# 依赖锁定（构建用 requirements.txt）
+uv.lock
+
+# 历史备份
+*.old.sh
+alembic.ini.old
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 本地测试辅助
+mock_llm.py
